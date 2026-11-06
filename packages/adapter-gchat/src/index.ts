@@ -1269,6 +1269,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       id: message.name,
       threadId,
       ...this.formatConverter.parseIncoming(text),
+      isMention: this.isBotMentioned(message),
       raw: notification,
       author: {
         userId,
@@ -1476,6 +1477,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       id: message.name,
       threadId,
       ...this.formatConverter.parseIncoming(text),
+      isMention: this.isBotMentioned(message),
       raw: event,
       author: {
         userId,
@@ -2786,6 +2788,27 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     }
 
     return text;
+  }
+
+  /**
+   * Check whether a message mentions this bot.
+   *
+   * Google Chat attaches a USER_MENTION annotation to every real mention, so
+   * with a configured bot user ID the annotations give a definitive answer.
+   * That keeps `@Bot Dev` (another user or app) from being read as a mention
+   * of a bot named `Bot` by the text match in the core. Without a bot user ID
+   * the adapter can't tell which mention is its own, so it returns undefined
+   * and leaves detection to the core.
+   */
+  protected isBotMentioned(message: GoogleChatMessage): boolean | undefined {
+    if (!this.botUserId) {
+      return undefined;
+    }
+    return (message.annotations ?? []).some(
+      (annotation) =>
+        annotation.type === "USER_MENTION" &&
+        annotation.userMention?.user?.name === this.botUserId
+    );
   }
 
   /**

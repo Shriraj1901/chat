@@ -826,6 +826,115 @@ describe("GoogleChatAdapter", () => {
     });
   });
 
+  describe("isMention", () => {
+    const mentionOf = (
+      name: string,
+      displayName: string,
+      type: "BOT" | "HUMAN" = "HUMAN"
+    ) => ({
+      type: "USER_MENTION" as const,
+      startIndex: 0,
+      length: displayName.length + 1,
+      userMention: {
+        user: { name, displayName, type },
+        type: "MENTION" as const,
+      },
+    });
+
+    it("should be true when an annotation mentions this bot", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const event = makeMessageEvent({
+        messageText: "@Bot hello",
+        annotations: [mentionOf("users/111", "Bot", "BOT")],
+      });
+
+      expect(adapter.parseMessage(event).isMention).toBe(true);
+    });
+
+    it("should be false when the annotation mentions a user whose name starts with the bot's", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const event = makeMessageEvent({
+        messageText: "@Bot Dev can you look at this",
+        annotations: [mentionOf("users/222", "Bot Dev")],
+      });
+
+      expect(adapter.parseMessage(event).isMention).toBe(false);
+    });
+
+    it("should be false when the annotation mentions another bot", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const event = makeMessageEvent({
+        messageText: "@Bot Dev hello",
+        annotations: [mentionOf("users/222", "Bot Dev", "BOT")],
+      });
+
+      expect(adapter.parseMessage(event).isMention).toBe(false);
+    });
+
+    it("should be false when there are no mention annotations", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const event = makeMessageEvent({ messageText: "no mention here" });
+
+      expect(adapter.parseMessage(event).isMention).toBe(false);
+    });
+
+    it("should be undefined without a botUserId, leaving detection to the core", async () => {
+      const { adapter } = await createInitializedAdapter({ userName: "Bot" });
+      const event = makeMessageEvent({
+        messageText: "@Bot hello",
+        annotations: [mentionOf("users/111", "Bot", "BOT")],
+      });
+
+      expect(adapter.parseMessage(event).isMention).toBeUndefined();
+    });
+
+    it("should follow the same rules for Pub/Sub messages", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const parse = (text: string, annotation: ReturnType<typeof mentionOf>) =>
+        (adapter as any).parsePubSubMessage(
+          {
+            eventType: "google.workspace.chat.message.v1.created",
+            targetResource: "//chat.googleapis.com/spaces/ABC123",
+            message: {
+              name: "spaces/ABC123/messages/msg1",
+              sender: { name: "users/100", type: "HUMAN" },
+              text,
+              createTime: new Date().toISOString(),
+              annotations: [annotation],
+            },
+          } satisfies WorkspaceEventNotification,
+          "gchat:spaces/ABC123"
+        );
+
+      const other = await parse(
+        "@Bot Dev can you look at this",
+        mentionOf("users/222", "Bot Dev")
+      );
+      const own = await parse(
+        "@Bot hello",
+        mentionOf("users/111", "Bot", "BOT")
+      );
+
+      expect(other.isMention).toBe(false);
+      expect(own.isMention).toBe(true);
+    });
+  });
+
   describe("isMessageFromSelf (via parseMessage)", () => {
     it("should detect self messages when botUserId is known", async () => {
       const { adapter } = await createInitializedAdapter({
